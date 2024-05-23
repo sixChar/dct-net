@@ -1,7 +1,12 @@
+import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+
+
+from transformers import BertTokenizer
 
 
 
@@ -30,7 +35,8 @@ class DCTBlock(nn.Module):
 
 
     def forward(self, x):
-        dctx = dct.dct(x)
+        # Want the highest frequencies to be in the first position so frequency positionts are not affected by input length
+        dctx = torch.transpose(dct.dct(torch.transpose(x, 1, 2)), 1, 2)
         x = self.ln1(x + self.dctw(dctx))
         x = self.ln2(x + self.ff(x))
         return x
@@ -50,7 +56,7 @@ class DCTNet(nn.Module):
     def __init__(self, vocab_size, dm, max_len=10000):
         super().__init__()
         self.pe = positional_encoding(10000, dm)
-        self.inW = nn.Linear(vocab_size, dm)
+        self.embed = nn.Embedding(vocab_size, dm)
         self.model = nn.Sequential(
             DCTBlock(dm),
             DCTBlock(dm),
@@ -69,3 +75,19 @@ class DCTNet(nn.Module):
 
 def cross_entropy(pred, tar):
     return -torch.mean(tar * torch.log(pred))
+
+
+def text_to_tokens(text):
+    tokens = np.frombuffer(bytes(text, "utf-8"), np.uint8)
+    return np.expand_dims(tokens.astype(np.int32), 0)
+
+
+if __name__=="__main__":
+
+    tokens = text_to_tokens("Hello, World!")
+    print(tokens.shape)
+    embed = nn.Embedding(256, 512)
+    print(embed(torch.from_numpy(tokens)))
+
+
+
