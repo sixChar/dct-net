@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 
 import torch
@@ -6,8 +8,13 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
+import torch_dct as dct
+
+
 from transformers import BertTokenizer
 
+
+DATA_PATH = "PATH_TO_TEXT"
 
 
 class DCTLayer(nn.Module):
@@ -53,22 +60,16 @@ def positional_encoding(max_len, dm):
 
 
 class DCTNet(nn.Module):
-    def __init__(self, vocab_size, dm, max_len=10000):
+    def __init__(self, vocab_size, dm, num_blocks=5, max_len=10000):
         super().__init__()
         self.pe = positional_encoding(10000, dm)
         self.embed = nn.Embedding(vocab_size, dm)
-        self.model = nn.Sequential(
-            DCTBlock(dm),
-            DCTBlock(dm),
-            DCTBlock(dm),
-            DCTBlock(dm),
-            DCTBlock(dm)
-        )
+        layers = [DCTBlock(dm) for _ in range(num_blocks)]
+        self.model = nn.Sequential(*layers)
         self.outW = nn.Linear(dm, vocab_size)
 
-
     def forward(self, x):
-        x = self.inW(x) + self.pe
+        x = self.embed(x) + self.pe[:, :x.shape[-1]]
         x = self.model(x)
         return F.softmax(self.outW(x), dim=-1)
         
@@ -79,15 +80,48 @@ def cross_entropy(pred, tar):
 
 def text_to_tokens(text):
     tokens = np.frombuffer(bytes(text, "utf-8"), np.uint8)
-    return np.expand_dims(tokens.astype(np.int32), 0)
+    return tokens.astype(np.int32)
 
 
 if __name__=="__main__":
+    with open(DATA_PATH, "r") as f:
+        data = f.read()
+    data = text_to_tokens(data)
 
-    tokens = text_to_tokens("Hello, World!")
-    print(tokens.shape)
-    embed = nn.Embedding(256, 512)
-    print(embed(torch.from_numpy(tokens)))
+    batch_size = 10
+    vocab_size = 256
+
+    model = DCTNet(vocab_size, 512, num_blocks=5)
+    opt = optim.Adam(model.parameters())
+
+    for i in range(1):
+        opt.zero_grad()
+        batch_len = np.random.randint(20, 5000)
+        batch_starts = np.random.randint(0, data.shape[0] - batch_len - 1, size=batch_size)
+
+        batch_x = np.array([data[start:start+batch_len] for start in batch_starts])
+        y_indices = data[batch_starts+batch_len]
+        batch_y = np.zeros((batch_size, vocab_size))
+        batch_y[np.arange(batch_size), y_indices] = 1
+
+        batch_x = torch.from_numpy(batch_x)
+        batch_y = torch.from_numpy(batch_y)
+
+        y = model(batch_x)[:, 0, :]
+
+        loss = cross_entropy(y, batch_y)
+
+        loss.backward()
+
+        opt.step()
+
+        if i % 100 == 0:
+            print("Loss: %.4f"%loss)
+
+
+
+        
+
 
 
 
