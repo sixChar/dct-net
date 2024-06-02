@@ -31,7 +31,17 @@ class DCTBlock(nn.Module):
         super().__init__()
         self.dctw = nn.Linear(dm, dm)
 
-        self.ff = nn.Sequential(
+        self.ff_dct = nn.Sequential(
+            nn.Linear(dm, 4 * dm),
+            nn.SiLU(),
+            nn.Linear(4 * dm, dm)
+        )
+        self.ff_idct = nn.Sequential(
+            nn.Linear(dm, 4 * dm),
+            nn.SiLU(),
+            nn.Linear(4 * dm, dm)
+        )
+        self.ff_linear = nn.Sequential(
             nn.Linear(dm, 4 * dm),
             nn.SiLU(),
             nn.Linear(4 * dm, dm)
@@ -42,10 +52,12 @@ class DCTBlock(nn.Module):
 
 
     def forward(self, x):
-        # Want the highest frequencies to be in the first position so frequency positionts are not affected by input length
+        # DCT along timestep
         dctx = torch.transpose(dct.dct(torch.transpose(x, 1, 2)), 1, 2)
-        x = self.ln1(x + self.dctw(dctx))
-        x = self.ln2(x + self.ff(x))
+        dctx = dctx + self.ff_dct(dctx)
+        inv_dctx = torch.transpose(dct.idct(torch.transpose(dctx, 1, 2)), 1, 2)
+        x = self.ln1(x + self.ff_idct(inv_dctx))
+        x = self.ln2(x + self.ff_linear(x))
         return x
 
 
